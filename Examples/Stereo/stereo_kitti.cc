@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     vector<string> vstrImageLeft;
     vector<string> vstrImageRight;
     vector<double> vTimestamps;
-    LoadImages(string(argv[3]), vstrImageLeft, vstrImageRight, vTimestamps);
+    LoadImages(string(argv[3]), vstrImageLeft, vstrImageRight, vTimestamps);//下载图片
 
     const int nImages = vstrImageLeft.size();
 
@@ -84,7 +84,8 @@ int main(int argc, char **argv)
 #endif
 
         // Pass the images to the SLAM system
-        SLAM.TrackStereo(imLeft,imRight,tframe);
+        SLAM.TrackStereo(imLeft,imRight,tframe);//主要函数，传入左右图片及其时间戳
+
 
 #ifdef COMPILEDWITHC11
         std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();

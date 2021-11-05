@@ -104,9 +104,9 @@ protected:
 
     std::vector<int> umax;
 
-    std::vector<float> mvScaleFactor;
+    std::vector<float> mvScaleFactor;//每一层的缩放因子 1.2^n
     std::vector<float> mvInvScaleFactor;    
-    std::vector<float> mvLevelSigma2;
+    std::vector<float> mvLevelSigma2;//每一层缩放因子的平方，即mvScaleFactor的平方
     std::vector<float> mvInvLevelSigma2;
 };
 

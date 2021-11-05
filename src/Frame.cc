@@ -56,7 +56,18 @@ Frame::Frame(const Frame &frame)
     if(!frame.mTcw.empty())
         SetPose(frame.mTcw);
 }
-
+/*
+ * const cv::Mat &imLeft, //左目图像
+const cv::Mat &imRight, //右目图像
+const double &timeStamp, //时间戳
+ORBextractor* extractorLeft, //左目特征提取
+ORBextractor* extractorRight, //右目特征提取
+ORBVocabulary* voc, //词袋数据
+cv::Mat &K, //相机内参
+cv::Mat &distCoef, //图像校正参数
+const float &bf, // bf=双目基线 * fx
+const float &thDepth) //这是深度值的阈值，按照特征点深度值大于或小于这个值，把他们分为close和far两类 *
+ */
 
 Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
     :mpORBvocabulary(voc),mpORBextractorLeft(extractorLeft),mpORBextractorRight(extractorRight), mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth),

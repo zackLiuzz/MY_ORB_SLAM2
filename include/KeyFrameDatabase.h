@@ -52,10 +52,10 @@ public:
    void clear();
 
    // Loop Detection
-   std::vector<KeyFrame *> DetectLoopCandidates(KeyFrame* pKF, float minScore);
+   std::vector<KeyFrame *> DetectLoopCandidates(KeyFrame* pKF, float minScore);//检测闭环候选帧
 
    // Relocalization
-   std::vector<KeyFrame*> DetectRelocalizationCandidates(Frame* F);
+   std::vector<KeyFrame*> DetectRelocalizationCandidates(Frame* F);//检测重定位候选帧
 
 protected:
 

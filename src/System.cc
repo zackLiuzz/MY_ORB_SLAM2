@@ -50,7 +50,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         cout << "RGB-D" << endl;
 
     //Check settings file
-    cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
+    cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);// 加载配置文件。配置文件中存放了相机参数和用户显示界面的设置
     if(!fsSettings.isOpened())
     {
        cerr << "Failed to open settings file at: " << strSettingsFile << endl;
@@ -61,8 +61,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     //Load ORB Vocabulary
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
 
-    mpVocabulary = new ORBVocabulary();
-    bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
+    mpVocabulary = new ORBVocabulary();//创建orb词袋模型，词袋是在做闭环检测和重定位时候做检索用的，从历史关键帧中检索出和当前帧最相似的一帧，以进行位姿匹配。
+    bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);//加载orb词袋数据
     if(!bVocLoad)
     {
         cerr << "Wrong path to vocabulary. " << endl;
@@ -75,11 +75,11 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
 
     //Create the Map
-    mpMap = new Map();
+    mpMap = new Map();//创建地图，存放关键帧和特征点
 
     //Create Drawers. These are used by the Viewer
-    mpFrameDrawer = new FrameDrawer(mpMap);
-    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
+    mpFrameDrawer = new FrameDrawer(mpMap);//用于画关键帧
+    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);//画地图
 
     //Initialize the Tracking thread
     //(it will live in the main thread of execution, the one that called this constructor)
@@ -87,22 +87,22 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
                              mpMap, mpKeyFrameDatabase, strSettingsFile, mSensor);
 
     //Initialize the Local Mapping thread and launch
-    mpLocalMapper = new LocalMapping(mpMap, mSensor==MONOCULAR);
+    mpLocalMapper = new LocalMapping(mpMap, mSensor==MONOCULAR);//初始化局部地图，并开启线程
     mptLocalMapping = new thread(&ORB_SLAM2::LocalMapping::Run,mpLocalMapper);
 
     //Initialize the Loop Closing thread and launch
-    mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR);
+    mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR);//初始化闭环检测，并开启线程
     mptLoopClosing = new thread(&ORB_SLAM2::LoopClosing::Run, mpLoopCloser);
 
     //Initialize the Viewer thread and launch
-    if(bUseViewer)
+    if(bUseViewer)//显示
     {
         mpViewer = new Viewer(this, mpFrameDrawer,mpMapDrawer,mpTracker,strSettingsFile);
         mptViewer = new thread(&Viewer::Run, mpViewer);
         mpTracker->SetViewer(mpViewer);
     }
 
-    //Set pointers between threads
+    //Set pointers between threads//在各个线程间建立联系。
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
 
@@ -124,9 +124,9 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     // Check mode change
     {
         unique_lock<mutex> lock(mMutexMode);
-        if(mbActivateLocalizationMode)
+        if(mbActivateLocalizationMode)//设置激活纯定位模式
         {
-            mpLocalMapper->RequestStop();
+            mpLocalMapper->RequestStop();//停止局部建图
 
             // Wait until Local Mapping has effectively stopped
             while(!mpLocalMapper->isStopped())
@@ -134,12 +134,12 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
                 usleep(1000);
             }
 
-            mpTracker->InformOnlyTracking(true);
+            mpTracker->InformOnlyTracking(true);//设置成纯定位模式
             mbActivateLocalizationMode = false;
         }
-        if(mbDeactivateLocalizationMode)
+        if(mbDeactivateLocalizationMode)//设置取消纯定位模式
         {
-            mpTracker->InformOnlyTracking(false);
+            mpTracker->InformOnlyTracking(false);//取消纯定位模式
             mpLocalMapper->Release();
             mbDeactivateLocalizationMode = false;
         }
@@ -148,14 +148,14 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     // Check reset
     {
     unique_lock<mutex> lock(mMutexReset);
-    if(mbReset)
+    if(mbReset)//重启
     {
         mpTracker->Reset();
         mbReset = false;
     }
     }
 
-    cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp);
+    cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp);//执行双目跟踪
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
