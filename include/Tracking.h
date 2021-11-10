@@ -121,7 +121,7 @@ protected:
     void Track();
 
     // Map initialization for stereo and RGB-D
-    void StereoInitialization();
+    void StereoInitialization();//初始化
 
     // Map initialization for monocular
     void MonocularInitialization();

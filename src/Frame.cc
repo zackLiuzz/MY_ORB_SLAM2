@@ -86,25 +86,27 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
     // ORB extraction
-    thread threadLeft(&Frame::ExtractORB,this,0,imLeft);
-    thread threadRight(&Frame::ExtractORB,this,1,imRight);
+    thread threadLeft(&Frame::ExtractORB,this,0,imLeft);//获得左相机关键点和描述子，保存在mvKeys,mDescriptors
+    thread threadRight(&Frame::ExtractORB,this,1,imRight);//获得右相机关键点和描述子，保存在mvKeysRight,mDescriptorsRight
     threadLeft.join();
     threadRight.join();
 
     N = mvKeys.size();
-
+    //mvKeys存放提取的特征点，如果没有特征点，则退出
     if(mvKeys.empty())
         return;
-
+    // 对特征点进行畸变校正
     UndistortKeyPoints();
-
+    // 计算双目间的匹配, 匹配成功的特征点会计算其深度
+      // 深度存放在mvuRight 和 mvDepth 中
     ComputeStereoMatches();
-
+    // 对应的mappoints
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));    
     mvbOutlier = vector<bool>(N,false);
 
 
     // This is done only for the first Frame (or after a change in the calibration)
+    //在第一次进入或者标定文件发生变化时调用该函数，重新计算相机相关参数
     if(mbInitialComputations)
     {
         ComputeImageBounds(imLeft);
@@ -123,7 +125,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     }
 
     mb = mbf/fx;
-
+    //把特征点划分到网格中，这种的好处是可以设置网格内特征点上限，从而使特征点分布更均匀
     AssignFeaturesToGrid();
 }
 
@@ -429,7 +431,7 @@ void Frame::UndistortKeyPoints()
     }
 
     // Undistort points
-    mat=mat.reshape(2);
+    mat=mat.reshape(2);//通道数变为2，mat变为n行1列
     cv::undistortPoints(mat,mat,mK,mDistCoef,cv::Mat(),mK);
     mat=mat.reshape(1);
 
@@ -476,14 +478,19 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft)
 
 void Frame::ComputeStereoMatches()
 {
-    mvuRight = vector<float>(N,-1.0f);
-    mvDepth = vector<float>(N,-1.0f);
+    mvuRight = vector<float>(N,-1.0f);//u_r,即找到的匹配点的x坐标
+    mvDepth = vector<float>(N,-1.0f);//计算出的深度
 
-    const int thOrbDist = (ORBmatcher::TH_HIGH+ORBmatcher::TH_LOW)/2;
+    const int thOrbDist = (ORBmatcher::TH_HIGH+ORBmatcher::TH_LOW)/2;//75，orb特征距离阈值
 
     const int nRows = mpORBextractorLeft->mvImagePyramid[0].rows;
 
     //Assign keypoints to row table
+    // 步骤1：建立特征点搜索范围对应表，一个特征点在一个带状区域内搜索匹配特征点
+    // 匹配搜索的时候，不仅仅是在一条横线上搜索，而是在一条横向搜索带上搜索,简而言之，原本每个特征点的纵坐标为1，这里把特征点体积放大，纵坐标占好几行
+    // 例如左目图像某个特征点的纵坐标为20，那么在右侧图像上搜索时是在纵坐标为18到22这条带上搜索，搜索带宽度为正负2，搜索带的宽度和特征点所在金字塔层数有关
+    // 简单来说，如果纵坐标是20，特征点在图像第20行，那么认为18 19 20 21 22行都有这个特征点
+    // vRowIndices[18]、vRowIndices[19]、vRowIndices[20]、vRowIndices[21]、vRowIndices[22]都有这个特征点编号
     vector<vector<size_t> > vRowIndices(nRows,vector<size_t>());
 
     for(int i=0; i<nRows; i++)

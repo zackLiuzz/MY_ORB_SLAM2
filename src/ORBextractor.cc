@@ -441,7 +441,7 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
     {
         mnFeaturesPerLevel[level] = cvRound(nDesiredFeaturesPerScale);
         sumFeatures += mnFeaturesPerLevel[level];
-        nDesiredFeaturesPerScale *= factor;
+        nDesiredFeaturesPerScale *= factor;//按每层的层数逐渐减少。
     }
     mnFeaturesPerLevel[nlevels-1] = std::max(nfeatures - sumFeatures, 0);
 
@@ -451,7 +451,7 @@ ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
 
     //This is for orientation
     // pre-compute the end of a row in a circular patch
-    umax.resize(HALF_PATCH_SIZE + 1);
+    umax.resize(HALF_PATCH_SIZE + 1);//HALF_PATCH_SIZE = 15;
 
     int v, v0, vmax = cvFloor(HALF_PATCH_SIZE * sqrt(2.f) / 2 + 1);
     int vmin = cvCeil(HALF_PATCH_SIZE * sqrt(2.f) / 2);
@@ -535,20 +535,20 @@ void ExtractorNode::DivideNode(ExtractorNode &n1, ExtractorNode &n2, ExtractorNo
         n4.bNoMore = true;
 
 }
-
+//利用四叉树来筛选提取的特征点，使得筛选后的特征点数量在预计的范围，并且分布均匀
 vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
                                        const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
 {
     // Compute how many initial nodes   
-    const int nIni = round(static_cast<float>(maxX-minX)/(maxY-minY));
-
+    const int nIni = round(static_cast<float>(maxX-minX)/(maxY-minY));//根节点的数量nIni是根据边界的宽高比值确定的。确定根节点的数量nIni后，再计算根节点的领域范围
+    //计算根节点的X范围，其Y轴范围就是(maxY-minY)
     const float hX = static_cast<float>(maxX-minX)/nIni;
-
+	//新建一个双向链表，其实后面大部分操作是改变这个
     list<ExtractorNode> lNodes;
 
-    vector<ExtractorNode*> vpIniNodes;
+    vector<ExtractorNode*> vpIniNodes;//存储根节点。
     vpIniNodes.resize(nIni);
-
+    //遍历每个根节点，计算根节点领域的四个点UL，UR，BL，BR并其存入lNodes和vpIniNodes
     for(int i=0; i<nIni; i++)
     {
         ExtractorNode ni;
@@ -566,11 +566,13 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
     for(size_t i=0;i<vToDistributeKeys.size();i++)
     {
         const cv::KeyPoint &kp = vToDistributeKeys[i];
-        vpIniNodes[kp.pt.x/hX]->vKeys.push_back(kp);
+        vpIniNodes[kp.pt.x/hX]->vKeys.push_back(kp);//将原始特征点填入根节点中
     }
 
     list<ExtractorNode>::iterator lit = lNodes.begin();
-
+    //现在lNodes中只放有根节点，变量根节点，如果根节点中关键点个数为1
+    	//那么将这个节点的bNoMore，表示这个节点不能再分裂了。
+    	//如果为空，那么就删除这个节点
     while(lit!=lNodes.end())
     {
         if(lit->vKeys.size()==1)
@@ -583,14 +585,14 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
         else
             lit++;
     }
-
+    //后面大循环结束标志位
     bool bFinish = false;
 
     int iteration = 0;
 
     vector<pair<int,ExtractorNode*> > vSizeAndPointerToNode;
     vSizeAndPointerToNode.reserve(lNodes.size()*4);
-
+    //现在lNodes里只有根节点，且每个节点的关键点数量都不为0
     while(!bFinish)
     {
         iteration++;
@@ -761,27 +763,37 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
 
     return vResultKeys;
 }
+//利用四叉树提取高斯金字塔中每层图像的orb关键点
+/*
+ * 最开始我以为提取出来的关键点是以四叉树的形式储存的，结果不是。四叉树只是被利用使得提取的关键点均匀分布，并且用到了非极大值抑制(Non-maximum suppression, NMS)算法。
 
+该算法的具体步骤为：
+1.先是计算提取关键点的边界，太边缘的地方放弃提取关键点；
+2.将图像分割为W*W的小图片，遍历这些分割出来的小图片并提取其关键点；
+3.将提取的关键点交给DistributeOctTree()利用四叉树以及非极大值抑制算法进行筛选；
+4.计算关键点的相关信息：像素位置，patch尺度，方向，所在高斯金字塔层数；
+ */
 void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoints)
 {
     allKeypoints.resize(nlevels);
 
-    const float W = 30;
-
+    const float W = 30;//暂定的分割窗口的大小
+    //对高斯金字塔mvImagePyramid中每层图像提取orb特征点
     for (int level = 0; level < nlevels; ++level)
     {
+    	//计算边界，在这个边界内计算FAST关键点
         const int minBorderX = EDGE_THRESHOLD-3;
         const int minBorderY = minBorderX;
         const int maxBorderX = mvImagePyramid[level].cols-EDGE_THRESHOLD+3;
         const int maxBorderY = mvImagePyramid[level].rows-EDGE_THRESHOLD+3;
 
-        vector<cv::KeyPoint> vToDistributeKeys;
+        vector<cv::KeyPoint> vToDistributeKeys;//用于存储待筛选的orb
         vToDistributeKeys.reserve(nfeatures*10);
 
         const float width = (maxBorderX-minBorderX);
         const float height = (maxBorderY-minBorderY);
 
-        const int nCols = width/W;
+        const int nCols = width/W;//用w进行降采样,
         const int nRows = height/W;
         const int wCell = ceil(width/nCols);
         const int hCell = ceil(height/nRows);
@@ -789,7 +801,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
         for(int i=0; i<nRows; i++)
         {
             const float iniY =minBorderY+i*hCell;
-            float maxY = iniY+hCell+6;
+            float maxY = iniY+hCell+6;//为何是加6而不是加3，因为每块图像还有上下左右各3个边界。
 
             if(iniY>=maxBorderY-3)
                 continue;
@@ -805,21 +817,30 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
                 if(maxX>maxBorderX)
                     maxX = maxBorderX;
 
-                vector<cv::KeyPoint> vKeysCell;
+                vector<cv::KeyPoint> vKeysCell;//每个小窗里的关键点KeyPoint将存在这里
+                //提取FAST角点
+                             //输入参数
+                             //mvImagePyramid[level].rowRange(iniY,maxY).colRange(iniX,maxX) level层的图片中行
+                             //范围(iniY,maxY),列范围(iniX,maxX)的截图
+                             //
+                             //vKeysCell，储存提取的fast关键点
+                             //iniThFAST提取角点的阈值
+                             //true 是否开启非极大值抑制算法
+
                 FAST(mvImagePyramid[level].rowRange(iniY,maxY).colRange(iniX,maxX),
-                     vKeysCell,iniThFAST,true);
+                     vKeysCell,iniThFAST,true);//用 fast20，此处采用了非极大值抑制，其实就是将局部极大值周围一定范围内的非极大值舍弃掉，以防止提取出太多相似且重复的特征点。
 
                 if(vKeysCell.empty())
                 {
                     FAST(mvImagePyramid[level].rowRange(iniY,maxY).colRange(iniX,maxX),
-                         vKeysCell,minThFAST,true);
+                         vKeysCell,minThFAST,true);//用fast9
                 }
 
                 if(!vKeysCell.empty())
                 {
                     for(vector<cv::KeyPoint>::iterator vit=vKeysCell.begin(); vit!=vKeysCell.end();vit++)
                     {
-                        (*vit).pt.x+=j*wCell;
+                        (*vit).pt.x+=j*wCell;//加上每个特征点的起始点坐标，得到特征点在整个图像中的坐标
                         (*vit).pt.y+=i*hCell;
                         vToDistributeKeys.push_back(*vit);
                     }
@@ -830,6 +851,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
 
         vector<KeyPoint> & keypoints = allKeypoints[level];
         keypoints.reserve(nfeatures);
+        std::cout<<"vToDistributeKeys.size(): "<<vToDistributeKeys.size()<<std::endl;
 
         keypoints = DistributeOctTree(vToDistributeKeys, minBorderX, maxBorderX,
                                       minBorderY, maxBorderY,mnFeaturesPerLevel[level], level);
@@ -1050,7 +1072,7 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
     assert(image.type() == CV_8UC1 );
 
     // Pre-compute the scale pyramid
-    ComputePyramid(image);
+    ComputePyramid(image);//先计算各个金字塔层的图像，使用线性插值生成各层图像
 
     vector < vector<KeyPoint> > allKeypoints;
     ComputeKeyPointsOctTree(allKeypoints);
@@ -1083,7 +1105,7 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
 
         // preprocess the resized image
         Mat workingMat = mvImagePyramid[level].clone();
-        GaussianBlur(workingMat, workingMat, Size(7, 7), 2, 2, BORDER_REFLECT_101);
+        GaussianBlur(workingMat, workingMat, Size(7, 7), 2, 2, BORDER_REFLECT_101);//高斯滤波去除噪声
 
         // Compute the descriptors
         Mat desc = descriptors.rowRange(offset, offset + nkeypointsLevel);
@@ -1117,10 +1139,10 @@ void ORBextractor::ComputePyramid(cv::Mat image)
         // Compute the resized image
         if( level != 0 )
         {
-            resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, INTER_LINEAR);
+            resize(mvImagePyramid[level-1], mvImagePyramid[level], sz, 0, 0, INTER_LINEAR);//线性插值，进行图片像素缩小
 
             copyMakeBorder(mvImagePyramid[level], temp, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
-                           BORDER_REFLECT_101+BORDER_ISOLATED);            
+                           BORDER_REFLECT_101+BORDER_ISOLATED);//扩充src边缘。
         }
         else
         {

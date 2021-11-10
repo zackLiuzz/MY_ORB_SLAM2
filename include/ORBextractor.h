@@ -82,7 +82,7 @@ public:
         return mvInvLevelSigma2;
     }
 
-    std::vector<cv::Mat> mvImagePyramid;
+    std::vector<cv::Mat> mvImagePyramid;//图像金字塔
 
 protected:
 
@@ -100,7 +100,7 @@ protected:
     int iniThFAST;
     int minThFAST;
 
-    std::vector<int> mnFeaturesPerLevel;
+    std::vector<int> mnFeaturesPerLevel;//每层的特征点数
 
     std::vector<int> umax;
 
