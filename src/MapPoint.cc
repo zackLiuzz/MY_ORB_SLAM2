@@ -100,9 +100,9 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
     unique_lock<mutex> lock(mMutexFeatures);
     if(mObservations.count(pKF))
         return;
-    mObservations[pKF]=idx;
+    mObservations[pKF]=idx;//每个关键帧附上id
 
-    if(pKF->mvuRight[idx]>=0)
+    if(pKF->mvuRight[idx]>=0)//存在匹配点。
         nObs+=2;
     else
         nObs++;
@@ -238,7 +238,11 @@ float MapPoint::GetFoundRatio()
     unique_lock<mutex> lock(mMutexFeatures);
     return static_cast<float>(mnFound)/mnVisible;
 }
-
+//计算描述子
+/*由于一个MapPoint会被许多相机观测到，因此在插入关键帧后，需要判断是否更新当前点的最适合的描述子。
+ * 最好的描述子与其他描述子应该具有最小的平均距离，因此先获得当前点的所有描述子，
+ * 然后计算描述子之间的两两距离，对所有距离取平均，最后找离这个中值距离最近的描述子。
+ */
 void MapPoint::ComputeDistinctiveDescriptors()
 {
     // Retrieve all observed descriptors
@@ -256,14 +260,14 @@ void MapPoint::ComputeDistinctiveDescriptors()
     if(observations.empty())
         return;
 
-    vDescriptors.reserve(observations.size());
+    vDescriptors.reserve(observations.size());//保存该地图点对应的所有描述子
 
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
 
         if(!pKF->isBad())
-            vDescriptors.push_back(pKF->mDescriptors.row(mit->second));
+            vDescriptors.push_back(pKF->mDescriptors.row(mit->second));//压入每个关键帧中对应关键点的描述子
     }
 
     if(vDescriptors.empty())
@@ -271,7 +275,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
 
     // Compute distances between them
     const size_t N = vDescriptors.size();
-
+//计算描述子两两之间的距离
     float Distances[N][N];
     for(size_t i=0;i<N;i++)
     {
@@ -285,6 +289,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
     }
 
     // Take the descriptor with least median distance to the rest
+    // 选择距离其他描述子中值距离最小的描述子作为地图点的描述子，基本上类似于取了个均值
     int BestMedian = INT_MAX;
     int BestIdx = 0;
     for(size_t i=0;i<N;i++)
@@ -326,7 +331,12 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
     unique_lock<mutex> lock(mMutexFeatures);
     return (mObservations.count(pKF));
 }
+/*
+ * 由于图像提取描述子是使用金字塔分层提取，所以计算法向量和深度可以知道该MapPoint在对应的关键帧的金字塔哪一层可以提取到。
 
+明确了目的，下一步就是方法问题，所谓的法向量，就是也就是说相机光心指向地图点的方向，
+计算这个方向方法很简单，只需要用地图点的三维坐标减去相机光心的三维坐标就可以。
+ */
 void MapPoint::UpdateNormalAndDepth()
 {
     map<KeyFrame*,size_t> observations;
@@ -361,12 +371,17 @@ void MapPoint::UpdateNormalAndDepth()
     const int level = pRefKF->mvKeysUn[observations[pRefKF]].octave;
     const float levelScaleFactor =  pRefKF->mvScaleFactors[level];
     const int nLevels = pRefKF->mnScaleLevels;
-
+    //深度范围：地图点到参考帧（只有一帧）相机中心距离，乘上参考帧中描述子获取金字塔放大尺度
+    //得到最大距离mfMaxDistance;最大距离除以整个金字塔最高层的放大尺度得到最小距离mfMinDistance.
+    //通常说来，距离较近的地图点，将在金字塔较高的地方提出，
+    //距离较远的地图点，在金字塔层数较低的地方提取出（金字塔层数越低，分辨率越高，才能识别出远点）
+    //因此，通过地图点的信息（主要对应描述子），我们可以获得该地图点对应的金字塔层级
+    //从而预测该地图点在什么范围内能够被观测到
     {
         unique_lock<mutex> lock3(mMutexPos);
         mfMaxDistance = dist*levelScaleFactor;
         mfMinDistance = mfMaxDistance/pRefKF->mvScaleFactors[nLevels-1];
-        mNormalVector = normal/n;
+        mNormalVector = normal/n;//多个关键帧观测到的平均法向量
     }
 }
 

@@ -51,16 +51,16 @@ public:
     std::map<KeyFrame*,size_t> GetObservations();
     int Observations();
 
-    void AddObservation(KeyFrame* pKF,size_t idx);
-    void EraseObservation(KeyFrame* pKF);
+    void AddObservation(KeyFrame* pKF,size_t idx);//增加地图点观测关系
+    void EraseObservation(KeyFrame* pKF);//删除地图点观测关系
 
     int GetIndexInKeyFrame(KeyFrame* pKF);
     bool IsInKeyFrame(KeyFrame* pKF);
 
-    void SetBadFlag();
+    void SetBadFlag();//删除地图点
     bool isBad();
 
-    void Replace(MapPoint* pMP);    
+    void Replace(MapPoint* pMP); //替换地图点
     MapPoint* GetReplaced();
 
     void IncreaseVisible(int n=1);
@@ -69,17 +69,17 @@ public:
     inline int GetFound(){
         return mnFound;
     }
-
+    //计算描述子
     void ComputeDistinctiveDescriptors();
 
     cv::Mat GetDescriptor();
-
+//更新法向量和深度值
     void UpdateNormalAndDepth();
 
     float GetMinDistanceInvariance();
     float GetMaxDistanceInvariance();
-    int PredictScale(const float &currentDist, KeyFrame*pKF);
-    int PredictScale(const float &currentDist, Frame* pF);
+    int PredictScale(const float &currentDist, KeyFrame*pKF);//预测尺度
+    int PredictScale(const float &currentDist, Frame* pF);//预测尺度
 
 public:
     long unsigned int mnId;
@@ -118,7 +118,7 @@ protected:
      cv::Mat mWorldPos;
 
      // Keyframes observing the point and associated index in keyframe
-     std::map<KeyFrame*,size_t> mObservations;
+     std::map<KeyFrame*,size_t> mObservations;//它是用来存放观测关系的容器，把能够观测到该MapPoint的关键帧，以及MapPoint在该关键帧中对应的索引值关联并存储起来
 
      // Mean viewing direction
      cv::Mat mNormalVector;
@@ -127,7 +127,7 @@ protected:
      cv::Mat mDescriptor;
 
      // Reference KeyFrame
-     KeyFrame* mpRefKF;
+     KeyFrame* mpRefKF;//参考关键帧，通常为观测到该map点的第一个关键帧。
 
      // Tracking counters
      int mnVisible;

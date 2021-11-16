@@ -204,7 +204,7 @@ private:
     // Rotation, translation and camera center
     cv::Mat mRcw;
     cv::Mat mtcw;
-    cv::Mat mRwc;
+    cv::Mat mRwc;//内旋，世界坐标系在相机坐标系下的位置，相当于外旋，相机坐标系原点在世界坐标系中的位置。
     cv::Mat mOw; //==mtwc
 };
 
