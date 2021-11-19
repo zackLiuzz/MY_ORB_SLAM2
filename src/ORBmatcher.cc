@@ -41,30 +41,32 @@ const int ORBmatcher::HISTO_LENGTH = 30;
 ORBmatcher::ORBmatcher(float nnratio, bool checkOri): mfNNratio(nnratio), mbCheckOrientation(checkOri)
 {
 }
-
+//将F里的特征值与vpMapPoints进行匹配，通过投影加速
+   //返回通过此函数匹配成功的数量
 int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoints, const float th)
 {
     int nmatches=0;
 
-    const bool bFactor = th!=1.0;
+    const bool bFactor = th!=1.0;//在更新局部地图时，此职为false
 
     for(size_t iMP=0; iMP<vpMapPoints.size(); iMP++)
     {
         MapPoint* pMP = vpMapPoints[iMP];
-        if(!pMP->mbTrackInView)
+        if(!pMP->mbTrackInView)//如果该地图点不可视，则忽略
             continue;
 
         if(pMP->isBad())
             continue;
 
-        const int &nPredictedLevel = pMP->mnTrackScaleLevel;
+        const int &nPredictedLevel = pMP->mnTrackScaleLevel;//当前地图点所在的尺度
 
         // The size of the window will depend on the viewing direction
-        float r = RadiusByViewingCos(pMP->mTrackViewCos);
+        //根据观测角的cos值确定搜索区域的半径
+        float r = RadiusByViewingCos(pMP->mTrackViewCos);//若角度范围很小，则搜索半径也小
 
         if(bFactor)
-            r*=th;
-
+            r*=th;//放大搜索半径
+        //pMP根据其预测的投影位置， 通过区域搜索得到当前帧F中的特征点集合
         const vector<size_t> vIndices =
                 F.GetFeaturesInArea(pMP->mTrackProjX,pMP->mTrackProjY,r*F.mvScaleFactors[nPredictedLevel],nPredictedLevel-1,nPredictedLevel);
 
@@ -80,10 +82,11 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
         int bestIdx =-1 ;
 
         // Get best and second matches with near keypoints
+        //遍历通过区域搜索得到的特征点集合
         for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
         {
             const size_t idx = *vit;
-
+            //如果这个特征点有对应的mappoint，且其对应的mappoint有被keyframe看到
             if(F.mvpMapPoints[idx])
                 if(F.mvpMapPoints[idx]->Observations()>0)
                     continue;
@@ -91,13 +94,13 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
             if(F.mvuRight[idx]>0)
             {
                 const float er = fabs(pMP->mTrackProjXR-F.mvuRight[idx]);
-                if(er>r*F.mvScaleFactors[nPredictedLevel])
+                if(er>r*F.mvScaleFactors[nPredictedLevel])//与预测误差太大，则舍弃
                     continue;
             }
 
-            const cv::Mat &d = F.mDescriptors.row(idx);
+            const cv::Mat &d = F.mDescriptors.row(idx);//得到当前特征点的描述子
 
-            const int dist = DescriptorDistance(MPdescriptor,d);
+            const int dist = DescriptorDistance(MPdescriptor,d);//计算当前特征点与地图点见的距离
 
             if(dist<bestDist)
             {
@@ -120,7 +123,7 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
             if(bestLevel==bestLevel2 && bestDist>mfNNratio*bestDist2)
                 continue;
 
-            F.mvpMapPoints[bestIdx]=pMP;
+            F.mvpMapPoints[bestIdx]=pMP;//得到当前帧特征点对应的地图点
             nmatches++;
         }
     }
@@ -159,6 +162,16 @@ bool ORBmatcher::CheckDistEpipolarLine(const cv::KeyPoint &kp1,const cv::KeyPoin
 //输入为参考帧，当前帧以及地图点vector
 //参考帧与当前帧进行特征点匹配
 //返回匹配点数量
+/**
+   * 针对pKF中有对应mappoint的那些特征点，和F中的特征点进行匹配
+   * 利用dbow进行匹配加速
+   * 通过距离阈值、比例阈值和角度投票进行剔除误匹配
+   * @param  pKF               KeyFrame
+   * @param  F                 Current Frame
+   * @param  vpMapPointMatches 大小为F特征点数量，输出F中MapPoints对应的匹配，NULL表示未匹配
+   * @return                   成功匹配的数量
+   */
+
 int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPointMatches)
 {
     const vector<MapPoint*> vpMapPointsKF = pKF->GetMapPointMatches();
@@ -412,7 +425,17 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
 
     return nmatches;
 }
-
+/**
+  * 搜索F1和F2之间的匹配点放在vnMatches12。如果mbCheckOrientation，则将F1中匹配成功的
+  * 特征点按照其角度分类在rotHist中。
+  * 计算出rotHist，vnMatches12
+  * @param F1       参考帧
+  * @param F2       当前帧
+  * @param vbPrevMatched  F1中待匹配的特征点
+  * @param vnMatches12    输出F1中特征点匹配情况，大小是F1的特征点数量。其中-1表示未匹配，大于0表示匹配的特征点在F2中的序号
+  * @param windowSize     加速匹配时用到的方形边长
+  * @return 成功匹配的数量
+  */
 int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched, vector<int> &vnMatches12, int windowSize)
 {
     int nmatches=0;
@@ -529,7 +552,7 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
     return nmatches;
 }
-
+// 匹配pKF1与pKF2之间的特征点并通过bow加速，vpMatches12是pKF1匹配特征点对应的MapPoints
 int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &vpMatches12)
 {
     const vector<cv::KeyPoint> &vKeysUn1 = pKF1->mvKeysUn;
@@ -664,7 +687,7 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
 
     return nmatches;
 }
-
+// 匹配pKF1与pKF2之间的未被匹配的特征点并通过bow加速，并校验是否符合对级约束。vMatchedPairs匹配成功的特征点在各自关键帧中的id。
 int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F12,
                                        vector<pair<size_t, size_t> > &vMatchedPairs, const bool bOnlyStereo)
 {    
@@ -832,7 +855,12 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
 
     return nmatches;
 }
-
+/**
+ * 将vpMapPoints中的mappoint与pKF的特征点进行匹配，若匹配的特征点已有mappoint与其匹配，
+ * 则选择其一与此特征点匹配，并抹去没有选择的那个mappoint，此为mappoint的融合
+ * @param radius 为在vpMapPoints投影到pKF搜索待匹配的特征点时的方框边长
+ * @return 融合的mappoint的数量
+ */
 int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th)
 {
     cv::Mat Rcw = pKF->GetRotation();
@@ -984,7 +1012,9 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
 
     return nFused;
 }
-
+// Project MapPoints into KeyFrame using a given Sim3 and search for duplicated MapPoints.
+//vpPoints通过Scw投影到pKF，与pKF中的特征点匹配。如果匹配的pKF中的特征点本身有就的匹配mappoint，就用vpPoints替代它。
+//vpReplacePoint大小与vpPoints一致，储存着被替换下来的mappoint
 int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint)
 {
     // Get Calibration Parameters for later projection
@@ -1335,6 +1365,14 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint*> &
 
     return nFound;
 }
+/**根据上一帧LastFrame的特征点以及所对应的mappoint信息，寻找当前帧的哪些特征点与哪些mappoint的匹配联系
+ * 根据上一帧特征点对应的3D点投影的位置缩小特征点匹配范围
+ * @param  CurrentFrame 当前帧
+ * @param  LastFrame    上一帧
+ * @param  th           控制特征搜索框的大小阈值
+ * @param  bMono        是否为单目
+ * @return              成功匹配的数量
+ */
 
 int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono)
 {

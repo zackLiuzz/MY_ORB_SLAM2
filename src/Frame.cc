@@ -278,7 +278,10 @@ void Frame::UpdatePoseMatrices()
     mtcw = mTcw.rowRange(0,3).col(3);
     mOw = -mRcw.t()*mtcw;
 }
-
+/*
+ * 先计算MapPoint在相机坐标系下的坐标，用该点和光心的连线即可知道它在相机的哪个视角范围内（即该连线和相机正前方的夹角），
+ * 如果这个角度大于设定值，那么就认为该点不在视野内，反之则在，在的时候就计算该MapPoint在该帧图像上的坐标，以便跟踪时使用。
+ */
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
     pMP->mbTrackInView = false;
@@ -287,7 +290,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     cv::Mat P = pMP->GetWorldPos(); 
 
     // 3D in camera coordinates
-    const cv::Mat Pc = mRcw*P+mtcw;
+    const cv::Mat Pc = mRcw*P+mtcw;//将P点转移到当前帧相机坐标系下
     const float &PcX = Pc.at<float>(0);
     const float &PcY= Pc.at<float>(1);
     const float &PcZ = Pc.at<float>(2);
@@ -298,17 +301,21 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 
     // Project in image and check it is not outside
     const float invz = 1.0f/PcZ;
-    const float u=fx*PcX*invz+cx;
+    const float u=fx*PcX*invz+cx;//得到地图点在当前帧图像中的初始位置
     const float v=fy*PcY*invz+cy;
 
-    if(u<mnMinX || u>mnMaxX)
+    //判断投影后的坐标是否在图像内
+    if(u<mnMinX || u>mnMaxX)//TODO mnMaxX的计算原理
         return false;
     if(v<mnMinY || v>mnMaxY)
         return false;
 
     // Check distance is in the scale invariance region of the MapPoint
+    // 计算MapPoint到相机中心的距离, 并判断是否在尺度变化的距离内
+     // 每一个地图点都是对应于若干尺度的金字塔提取出来的，具有一定的有效深度
     const float maxDistance = pMP->GetMaxDistanceInvariance();
     const float minDistance = pMP->GetMinDistanceInvariance();
+    // 世界坐标系下，相机到3D点P的向量, 向量方向由相机指向3D点P
     const cv::Mat PO = P-mOw;
     const float dist = cv::norm(PO);
 
@@ -316,20 +323,24 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
         return false;
 
    // Check viewing angle
-    cv::Mat Pn = pMP->GetNormal();
+    // 计算当前视角和平均视角夹角的余弦值, 若小于cos(60), 即夹角大于60度则返回
+    // 每一个地图都有其平均视角，是从能够观测到地图点的帧位姿中计算出
+    cv::Mat Pn = pMP->GetNormal();//获得相机的法向向量，及z轴方向向量
 
-    const float viewCos = PO.dot(Pn)/dist;
+    const float viewCos = PO.dot(Pn)/dist;//获得cos_theta
 
-    if(viewCos<viewingCosLimit)
+    if(viewCos<viewingCosLimit)//若夹角太大，超过±60度，则认为不在视野内
         return false;
 
     // Predict scale in the image
+    // 根据特征点的深度预测该特征点所在的尺度（对应特征点在一层）
     const int nPredictedLevel = pMP->PredictScale(dist,this);
 
     // Data used by the tracking
-    pMP->mbTrackInView = true;
+    // 如果在视野范围内，在tracking中会被用到，此处要把用到的量赋值
+    pMP->mbTrackInView = true;//标志位置为true，表示在视野范围内，在函数开头默认置为false
     pMP->mTrackProjX = u;
-    pMP->mTrackProjXR = u - mbf*invz;
+    pMP->mTrackProjXR = u - mbf*invz;//该3D点投影到双目右侧相机上的横坐标
     pMP->mTrackProjY = v;
     pMP->mnTrackScaleLevel= nPredictedLevel;
     pMP->mTrackViewCos = viewCos;
@@ -341,7 +352,8 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
 {
     vector<size_t> vIndices;
     vIndices.reserve(N);
-
+    //接下来计算方形的四边在哪在mGrid中的行数和列数
+        //nMinCellX是方形左边在mGrid中的列数，如果它比mGrid的列数大，说明方形内肯定没有特征点，于是返回
     const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
     if(nMinCellX>=FRAME_GRID_COLS)
         return vIndices;

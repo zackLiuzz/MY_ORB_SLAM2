@@ -33,11 +33,15 @@
 
 namespace ORB_SLAM2
 {
-
+//该类负责特征点与特征点之间，地图点与特征点之间通过投影关系、词袋模型或者Sim3位姿匹配
 class ORBmatcher
 {    
 public:
-
+	   /**
+	    * 找到在 以x, y为中心,边长为2r的方形内且尺度在[minLevel, maxLevel]的特征点
+	    * @param nnratio        匹配特征点时，确定时候最好匹配与次好匹配差距的阈值。其值越小，其匹配越精确
+	    * @param checkOri       是否开启匹配点的方向分类
+	    */
     ORBmatcher(float nnratio=0.6, bool checkOri=true);
 
     // Computes the Hamming distance between two ORB descriptors
@@ -45,14 +49,35 @@ public:
 
     // Search matches between Frame keypoints and projected MapPoints. Returns number of matches
     // Used to track the local map (Tracking)
+    //将F里的特征值与vpMapPoints进行匹配，通过投影加速
+    //返回通过此函数匹配成功的数量
     int SearchByProjection(Frame &F, const std::vector<MapPoint*> &vpMapPoints, const float th=3);
 
     // Project MapPoints tracked in last frame into the current frame and search matches.
     // Used to track from previous frame (Tracking)
+    /**根据上一帧LastFrame的特征点以及所对应的mappoint信息，寻找当前帧的哪些特征点与哪些mappoint的匹配联系
+        * 根据上一帧特征点对应的3D点投影的位置缩小特征点匹配范围
+        * @param  CurrentFrame 当前帧
+        * @param  LastFrame    上一帧
+        * @param  th           控制特征搜索框的大小阈值
+        * @param  bMono        是否为单目
+        * @return              成功匹配的数量
+        */
+
     int SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono);
 
     // Project MapPoints seen in KeyFrame into the Frame and search matches.
     // Used in relocalisation (Tracking)
+    /**在Tracking里的relocalisation中使用
+        * CurrentFrame中特征点已经匹配好一些mappoint在sAlreadyFound中，通过此函数将pKF悉数投影到CurrentFrame再就近搜索特征点进行匹配
+        * 也就是说CurrentFrame想通过这个函数在pKF的mappoint集合中匹配上更多的mappoint点
+        * @param CurrentFrame 当前帧
+        * @param pKF
+        * @param sAlreadyFound CurrentFrame已经匹配上的mappoint
+        * @param th 控制特征搜索框的大小阈值
+        * @param ORBdist pKF中的mappoint是否能和CurrentFrame匹配成功的描述子距离的阈值
+        * @return 成功匹配的数量
+        */
     int SearchByProjection(Frame &CurrentFrame, KeyFrame* pKF, const std::set<MapPoint*> &sAlreadyFound, const float th, const int ORBdist);
 
     // Project MapPoints using a Similarity Transformation and search matches.
@@ -84,20 +109,21 @@ public:
 
 public:
 
-    static const int TH_LOW;
+    static const int TH_LOW; //匹配特征点时，描述子距离的阈值。特征点间描述子小于此值才考虑匹配
     static const int TH_HIGH;
-    static const int HISTO_LENGTH;
+    static const int HISTO_LENGTH;//按照匹配特征点之间的角度分类匹配特征点的数量
 
 
 protected:
-
+    //判断kp1，与kp2在基础矩阵F12下是否复合对极约束
     bool CheckDistEpipolarLine(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &F12, const KeyFrame *pKF);
-
+    //根据观测角的cos值确定搜索区域的半径
     float RadiusByViewingCos(const float &viewCos);
-
+    //找出数组histo中，vector.size()数量最大的前三位。也就是角度范围最多的前三位。
     void ComputeThreeMaxima(std::vector<int>* histo, const int L, int &ind1, int &ind2, int &ind3);
-
+    //匹配特征点时，确定时候最好匹配与次好匹配差距的阈值。其值越小，其匹配越精确
     float mfNNratio;
+    //是否开启匹配点角度差与其他大多数匹配点角度差差异较大的匹配点
     bool mbCheckOrientation;
 };
 

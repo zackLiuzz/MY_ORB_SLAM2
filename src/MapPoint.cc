@@ -413,7 +413,13 @@ int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
 
     return nScale;
 }
-
+//根据距离和当前帧预测金字塔尺度
+//该函数的作用是预测特征点在金字塔哪一层可以找到。
+/*
+ * 注意金字塔ScaleFactor和距离的关系：当特征点对应ScaleFactor为1.2的意思是：
+ * 图片分辨率下降1.2倍后，可以提取出该特征点(分辨率更高的时候，肯定也可以提出，
+ * 这里取金字塔中能够提取出该特征点最高层级作为该特征点的层级)，同时，由当前特征点的距离，推测所在的层级。
+ */
 int MapPoint::PredictScale(const float &currentDist, Frame* pF)
 {
     float ratio;
