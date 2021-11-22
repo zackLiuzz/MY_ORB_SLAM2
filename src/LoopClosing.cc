@@ -61,16 +61,19 @@ void LoopClosing::Run()
     while(1)
     {
         // Check if there are keyframes in the queue
+    	//如果有新的keyframe插入到闭环检测序列（在localmapping::run()结尾处插入）
         if(CheckNewKeyFrames())
         {
             // Detect loop candidates and check covisibility consistency
+        	 //检测是否有闭环候选关键帧
             if(DetectLoop())
             {
                // Compute similarity transformation [sR|t]
                // In the stereo/RGBD case s=1
-               if(ComputeSim3())
+               if(ComputeSim3())//计算相似变换群
                {
                    // Perform loop fusion and pose graph optimization
+            	   //进行闭环融合以及位姿图优化
                    CorrectLoop();
                }
             }
@@ -99,18 +102,28 @@ bool LoopClosing::CheckNewKeyFrames()
     unique_lock<mutex> lock(mMutexLoopQueue);
     return(!mlpLoopKeyFrameQueue.empty());
 }
+/*
+ *1）如果地图中的关键帧数小于10，那么不进行闭环检测
 
+2）获取共视关键帧，并计算他们和当前关键帧之间的BoW分数，求得最低分
+
+3）通过上一步计算出的最低分数到数据库中查找出候选关键帧，这一步相当于是找到了曾经到过此处的关键帧们
+
+4）对候选关键帧集进行连续性检测
+ */
 bool LoopClosing::DetectLoop()
 {
     {
         unique_lock<mutex> lock(mMutexLoopQueue);
-        mpCurrentKF = mlpLoopKeyFrameQueue.front();
+        mpCurrentKF = mlpLoopKeyFrameQueue.front();//取出一个关键帧作为当前关键帧
         mlpLoopKeyFrameQueue.pop_front();
         // Avoid that a keyframe can be erased while it is being process by this thread
+        //避免在本线程运行时，该关键帧被删除
         mpCurrentKF->SetNotErase();
     }
 
     //If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
+    // 如果距离上次闭环没多久（小于10帧），或者map中关键帧总共还没有10帧，则不进行闭环检测
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
         mpKeyFrameDB->add(mpCurrentKF);
@@ -121,6 +134,8 @@ bool LoopClosing::DetectLoop()
     // Compute reference BoW similarity score
     // This is the lowest score to a connected keyframe in the covisibility graph
     // We will impose loop candidates to have a higher similarity than this
+    //遍历所有共视关键帧，计算当前关键帧与每个共视关键的bow相似度得分，计算minScore
+    //返回Covisibility graph中与此节点连接的节点（即关键帧），总的来说这一步是为了计算阈值 minScore
     const vector<KeyFrame*> vpConnectedKeyFrames = mpCurrentKF->GetVectorCovisibleKeyFrames();
     const DBoW2::BowVector &CurrentBowVec = mpCurrentKF->mBowVec;
     float minScore = 1;
@@ -138,6 +153,15 @@ bool LoopClosing::DetectLoop()
     }
 
     // Query the database imposing the minimum score
+    //在最低相似度 minScore的要求下，获得闭环检测的候选帧集合
+    //在除去当前帧共视关系的关键帧数据中，检测闭环候选帧(这个函数在KeyFrameDatabase中)
+        //闭环候选帧删选过程：
+        //1,BoW得分>minScore;
+        //2,统计满足1的关键帧中有共同单子最多的单词数maxcommonwords
+        //3,筛选出共同单词数大于mincommons(=0.8*maxcommons)的关键帧
+        //4,相连的关键帧分为一组，计算组得分（总分）,得到最大总分bestAccScore,筛选出总分大于minScoreToRetain(=0.75*bestAccScore)的组
+        //用得分最高的候选帧IAccScoreAndMathch代表该组，计算组得分的目的是剔除单独一帧得分较高，但是没有共视关键帧作为闭环来说不够鲁棒
+        //对于通过了闭环检测的关键帧，还需要通过连续性检测(连续三帧都通过上面的筛选)，才能作为闭环候选帧
     vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);
 
     // If there are no loop candidates, just add new keyframe and return false
@@ -153,6 +177,11 @@ bool LoopClosing::DetectLoop()
     // Each candidate expands a covisibility group (keyframes connected to the loop candidate in the covisibility graph)
     // A group is consistent with a previous group if they share at least a keyframe
     // We must detect a consistent loop in several consecutive keyframes to accept it
+    // 在候选帧中检测具有连续性的候选帧
+    // 每个候选帧将与自己相连的关键帧构成一个“候选组spCandidateGroup”
+    // 检测“候选组”中每一个关键帧是否存在于“连续组”，如果存在nCurrentConsistency++，将该“候选组”放入“当前连续组vCurrentConsistentGroups”
+    // 如果nCurrentConsistency大于等于3，那么该”子候选组“代表的候选帧过关，进入mvpEnoughConsistentCandidates
+    //Consistent 除了一致的意思外，还有一个意思：连续的
     mvpEnoughConsistentCandidates.clear();
 
     vector<ConsistentGroup> vCurrentConsistentGroups;
@@ -160,7 +189,7 @@ bool LoopClosing::DetectLoop()
     for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)
     {
         KeyFrame* pCandidateKF = vpCandidateKFs[i];
-
+        // 将自己以及与自己相连的关键帧构成一个“候选组”  这个条件是否太宽松?pCandidateKF->GetVectorCovisibleKeyFrames()是否更好一点？
         set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();
         spCandidateGroup.insert(pCandidateKF);
 
