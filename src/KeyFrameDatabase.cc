@@ -195,23 +195,35 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
 
     return vpLoopCandidates;
 }
+/*
+ * 检测的主要步骤如下：
 
+1）找出与当前帧pKF有公共单词的所有关键帧pKFi，不包括与当前帧相连的关键帧。
+
+2）统计所有闭环候选帧中与pKF具有共同单词最多的单词数，只考虑共有单词数大于0.8*maxCommonWords以及匹配得分大于给定的minScore的关键帧，
+存入lScoreAndMatch。
+
+3）对于第二步中筛选出来的pKFi，每一个都要抽取出自身的共视（共享地图点最多的前10帧）关键帧分为一组，
+计算该组整体得分（与pKF比较的），记为bestAccScore。所有组得分大于0.75*bestAccScore的，均当作闭环候选帧。
+ */
 vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
 {
     list<KeyFrame*> lKFsSharingWords;
 
     // Search all keyframes that share a word with current frame
+    //搜索所有和和F有着相同单词的keyframe存储在lKFsSharingWords
+    //并且更新keyframe中mnRelocWords，表示和此F有多少共同的单词
     {
         unique_lock<mutex> lock(mMutex);
 
         for(DBoW2::BowVector::const_iterator vit=F->mBowVec.begin(), vend=F->mBowVec.end(); vit != vend; vit++)
         {
-            list<KeyFrame*> &lKFs =   mvInvertedFile[vit->first];
+            list<KeyFrame*> &lKFs =   mvInvertedFile[vit->first];//取出包含该单词的关键帧
 
             for(list<KeyFrame*>::iterator lit=lKFs.begin(), lend= lKFs.end(); lit!=lend; lit++)
             {
                 KeyFrame* pKFi=*lit;
-                if(pKFi->mnRelocQuery!=F->mnId)
+                if(pKFi->mnRelocQuery!=F->mnId)//统计当前帧的重定位查询信息。
                 {
                     pKFi->mnRelocWords=0;
                     pKFi->mnRelocQuery=F->mnId;
@@ -221,20 +233,21 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
             }
         }
     }
-    if(lKFsSharingWords.empty())
+    if(lKFsSharingWords.empty())//如果当前帧的重定位查询关键帧为空，则退出。
         return vector<KeyFrame*>();
 
     // Only compare against those keyframes that share enough words
     int maxCommonWords=0;
+    //统计所有重定位候选帧中，与当前帧的最大共有单词数maxCommonWords
     for(list<KeyFrame*>::iterator lit=lKFsSharingWords.begin(), lend= lKFsSharingWords.end(); lit!=lend; lit++)
     {
         if((*lit)->mnRelocWords>maxCommonWords)
             maxCommonWords=(*lit)->mnRelocWords;
     }
 
-    int minCommonWords = maxCommonWords*0.8f;
+    int minCommonWords = maxCommonWords*0.8f;//设定共有单词数量阈值
 
-    list<pair<float,KeyFrame*> > lScoreAndMatch;
+    list<pair<float,KeyFrame*> > lScoreAndMatch;//存储的是【得分，该得分对应的关键帧】
 
     int nscores=0;
 
@@ -243,10 +256,10 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
     {
         KeyFrame* pKFi = *lit;
 
-        if(pKFi->mnRelocWords>minCommonWords)
+        if(pKFi->mnRelocWords>minCommonWords)//满足共有单词数量阈值
         {
             nscores++;
-            float si = mpVoc->score(F->mBowVec,pKFi->mBowVec);
+            float si = mpVoc->score(F->mBowVec,pKFi->mBowVec);//利用两帧的单词向量计算得分
             pKFi->mRelocScore=si;
             lScoreAndMatch.push_back(make_pair(si,pKFi));
         }
@@ -255,22 +268,25 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
     if(lScoreAndMatch.empty())
         return vector<KeyFrame*>();
 
-    list<pair<float,KeyFrame*> > lAccScoreAndMatch;
-    float bestAccScore = 0;
+    list<pair<float,KeyFrame*> > lAccScoreAndMatch;//记录【最好累计得分，最佳匹配关键帧】
+    float bestAccScore = 0;//记录最好累计得分
 
     // Lets now accumulate score by covisibility
+    //遍历lScoreAndMatch中的keyframe，找出其共视图中与此keyframe连接的权值前N的节点，加上原keyframe总共11个keyframe
+    //累加这11个keyframe的相似度得分，然后在11个keyframe中选择相似度得分最高的那个放入lAccScoreAndMatch中
+    //在遍历过程中计算bestAccScore，也就是AccScore的最大值，后面的再次筛选有用
     for(list<pair<float,KeyFrame*> >::iterator it=lScoreAndMatch.begin(), itend=lScoreAndMatch.end(); it!=itend; it++)
     {
         KeyFrame* pKFi = it->second;
-        vector<KeyFrame*> vpNeighs = pKFi->GetBestCovisibilityKeyFrames(10);
+        vector<KeyFrame*> vpNeighs = pKFi->GetBestCovisibilityKeyFrames(10);// TODO 权重是如何得来的
 
-        float bestScore = it->first;
-        float accScore = bestScore;
-        KeyFrame* pBestKF = pKFi;
+        float bestScore = it->first;//记录最好得分
+        float accScore = bestScore;//记录累计得分
+        KeyFrame* pBestKF = pKFi;//记录最好得分对应的关键帧
         for(vector<KeyFrame*>::iterator vit=vpNeighs.begin(), vend=vpNeighs.end(); vit!=vend; vit++)
         {
             KeyFrame* pKF2 = *vit;
-            if(pKF2->mnRelocQuery!=F->mnId)
+            if(pKF2->mnRelocQuery!=F->mnId)//若不是当前帧的重定位帧，//说明pKF2与F没有共同的单词，就放弃此循环的关键帧
                 continue;
 
             accScore+=pKF2->mRelocScore;
@@ -287,6 +303,7 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
     }
 
     // Return all those keyframes with a score higher than 0.75*bestScore
+    //返回lAccScoreAndMatch中所有得分超过0.75*bestAccScore的keyframe集合
     float minScoreToRetain = 0.75f*bestAccScore;
     set<KeyFrame*> spAlreadyAddedKF;
     vector<KeyFrame*> vpRelocCandidates;

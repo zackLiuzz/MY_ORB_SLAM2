@@ -1528,7 +1528,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
 
     const cv::Mat Rcw = CurrentFrame.mTcw.rowRange(0,3).colRange(0,3);
     const cv::Mat tcw = CurrentFrame.mTcw.rowRange(0,3).col(3);
-    const cv::Mat Ow = -Rcw.t()*tcw;
+    const cv::Mat Ow = -Rcw.t()*tcw;//世界坐标系下的当前帧光心
 
     // Rotation Histogram (to check rotation consistency)
     vector<int> rotHist[HISTO_LENGTH];
@@ -1544,11 +1544,11 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
 
         if(pMP)
         {
-            if(!pMP->isBad() && !sAlreadyFound.count(pMP))
+            if(!pMP->isBad() && !sAlreadyFound.count(pMP))//地图点有效，且地图点还未找到匹配特征点
             {
                 //Project
                 cv::Mat x3Dw = pMP->GetWorldPos();
-                cv::Mat x3Dc = Rcw*x3Dw+tcw;
+                cv::Mat x3Dc = Rcw*x3Dw+tcw;//相机坐标系下的地图点位置
 
                 const float xc = x3Dc.at<float>(0);
                 const float yc = x3Dc.at<float>(1);
@@ -1564,7 +1564,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
 
                 // Compute predicted scale level
                 cv::Mat PO = x3Dw-Ow;
-                float dist3D = cv::norm(PO);
+                float dist3D = cv::norm(PO);//地图点到光心的距离
 
                 const float maxDistance = pMP->GetMaxDistanceInvariance();
                 const float minDistance = pMP->GetMinDistanceInvariance();
@@ -1573,21 +1573,21 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
                 if(dist3D<minDistance || dist3D>maxDistance)
                     continue;
 
-                int nPredictedLevel = pMP->PredictScale(dist3D,&CurrentFrame);
+                int nPredictedLevel = pMP->PredictScale(dist3D,&CurrentFrame);//根据距离预测特征点尺度
 
                 // Search in a window
-                const float radius = th*CurrentFrame.mvScaleFactors[nPredictedLevel];
-
+                const float radius = th*CurrentFrame.mvScaleFactors[nPredictedLevel];//根据尺度确认搜索半径
+//在当前帧中获取候选关键点
                 const vector<size_t> vIndices2 = CurrentFrame.GetFeaturesInArea(u, v, radius, nPredictedLevel-1, nPredictedLevel+1);
 
                 if(vIndices2.empty())
                     continue;
 
-                const cv::Mat dMP = pMP->GetDescriptor();
+                const cv::Mat dMP = pMP->GetDescriptor();//获取地图点描述子
 
                 int bestDist = 256;
                 int bestIdx2 = -1;
-
+//获取候选关键帧地图点在当前帧中的匹配特征点
                 for(vector<size_t>::const_iterator vit=vIndices2.begin(); vit!=vIndices2.end(); vit++)
                 {
                     const size_t i2 = *vit;
