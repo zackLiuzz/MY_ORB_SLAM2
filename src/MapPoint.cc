@@ -173,7 +173,13 @@ MapPoint* MapPoint::GetReplaced()
     unique_lock<mutex> lock2(mMutexPos);
     return mpReplaced;
 }
+//替换地图点，MapPoint* pMP就是用来替换的地图点
+/*
+ * 该函数的作用是将当前地图点(this)，替换成pMp，这主要是因为在使用闭环时，完成闭环优化以后，需要调整地图点和关键帧，建立新的关系。
 
+具体流程是循环遍历所有的观测信息，判断此MapPoint是否在该关键帧中，如果在，那么只要移除原来MapPoint的匹配信息，
+最后增加这个MapPoint找到的数量以及可见的次数，另外地图中要移除原来的那个MapPoint。最后需要计算这个点独有的描述子。
+ */
 void MapPoint::Replace(MapPoint* pMP)
 {
     if(pMP->mnId==this->mnId)
@@ -196,7 +202,7 @@ void MapPoint::Replace(MapPoint* pMP)
     {
         // Replace measurement in keyframe
         KeyFrame* pKF = mit->first;
-
+        // 如果该MapPoint不在关键帧的观测关系中，就添加观测关系
         if(!pMP->IsInKeyFrame(pKF))
         {
             pKF->ReplaceMapPointMatch(mit->second, pMP);
@@ -210,7 +216,7 @@ void MapPoint::Replace(MapPoint* pMP)
     pMP->IncreaseFound(nfound);
     pMP->IncreaseVisible(nvisible);
     pMP->ComputeDistinctiveDescriptors();
-
+    //删掉Map中该地图点
     mpMap->EraseMapPoint(this);
 }
 

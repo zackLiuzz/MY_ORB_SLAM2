@@ -152,7 +152,7 @@ void KeyFrame::UpdateBestCovisibles()
     list<int> lWs;
     for(size_t i=0, iend=vPairs.size(); i<iend;i++)
     {
-        lKFs.push_front(vPairs[i].second);
+        lKFs.push_front(vPairs[i].second);//权重大的放在前面
         lWs.push_front(vPairs[i].first);
     }
 
@@ -289,10 +289,18 @@ MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
     unique_lock<mutex> lock(mMutexFeatures);
     return mvpMapPoints[idx];
 }
+/*
+ * 该函数主要包含以下三部分内容：
 
+a. 首先获得该关键帧的所有MapPoint点，然后遍历观测到这些3d点的其它所有关键帧，对每一个找到的关键帧，先存储到相应的容器中。
+
+b. 计算所有共视帧与该帧的连接权重，权重即为共视的3d点的数量，对这些连接按照权重从大到小进行排序。当该权重必须大于一个阈值，便在两帧之间建立边，如果没有超过该阈值的权重，那么就只保留权重最大的边（与其它关键帧的共视程度比较高）。
+
+c. 更新covisibility graph，即把计算的边用来给图赋值，然后设置spanning tree中该帧的父节点，即共视程度最高的那一帧。
+ */
 void KeyFrame::UpdateConnections()
 {
-    map<KeyFrame*,int> KFcounter;
+    map<KeyFrame*,int> KFcounter;//【共视关键帧，共视地图点数】
 
     vector<MapPoint*> vpMP;
 
@@ -317,6 +325,7 @@ void KeyFrame::UpdateConnections()
 
         for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
+        	// 除去自身，自己与自己不算共视
             if(mit->first->mnId==mnId)
                 continue;
             KFcounter[mit->first]++;
@@ -345,7 +354,7 @@ void KeyFrame::UpdateConnections()
         if(mit->second>=th)
         {
             vPairs.push_back(make_pair(mit->second,mit->first));
-            (mit->first)->AddConnection(this,mit->second);
+            (mit->first)->AddConnection(this,mit->second);//增加历史关键帧的连接关键帧
         }
     }
 
@@ -355,12 +364,12 @@ void KeyFrame::UpdateConnections()
         pKFmax->AddConnection(this,nmax);
     }
 
-    sort(vPairs.begin(),vPairs.end());
+    sort(vPairs.begin(),vPairs.end());//按权重从小到大排列
     list<KeyFrame*> lKFs;
     list<int> lWs;
     for(size_t i=0; i<vPairs.size();i++)
     {
-        lKFs.push_front(vPairs[i].second);
+        lKFs.push_front(vPairs[i].second);//将大权重放在前面，肖全中放在后面
         lWs.push_front(vPairs[i].first);
     }
 
@@ -368,6 +377,7 @@ void KeyFrame::UpdateConnections()
         unique_lock<mutex> lockCon(mMutexConnections);
 
         // mspConnectedKeyFrames = spConnectedKeyFrames;
+        //为当前关键帧添加连接关系
         mConnectedKeyFrameWeights = KFcounter;
         mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
         mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
@@ -375,7 +385,7 @@ void KeyFrame::UpdateConnections()
         if(mbFirstConnection && mnId!=0)
         {
             mpParent = mvpOrderedConnectedKeyFrames.front();
-            mpParent->AddChild(this);
+            mpParent->AddChild(this);//将共视地图点最多的一个历史帧作为当前帧的父关键帧
             mbFirstConnection = false;
         }
 

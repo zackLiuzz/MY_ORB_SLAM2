@@ -209,9 +209,9 @@ protected:
     // Grid over the image to speed up feature matching
     std::vector< std::vector <std::vector<size_t> > > mGrid;
 
-    std::map<KeyFrame*,int> mConnectedKeyFrameWeights;
-    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;
-    std::vector<int> mvOrderedWeights;
+    std::map<KeyFrame*,int> mConnectedKeyFrameWeights;//连接关键帧及其权重，权重为共视地图点的个数
+    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;//所有具有连接关系的关键帧
+    std::vector<int> mvOrderedWeights;//所有连接关键帧的权重，权重就是共视地图点的个数
 
     // Spanning Tree and Loop Edges
     bool mbFirstConnection;
