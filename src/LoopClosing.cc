@@ -686,6 +686,7 @@ void LoopClosing::CorrectLoop()
     mbRunningGBA = true;
     mbFinishedGBA = false;
     mbStopGBA = false;
+    //进行全局BA
     mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment,this,mpCurrentKF->mnId);
 
     // Loop closed. Release Local Mapping.
@@ -766,6 +767,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
     // Local Mapping was active during BA, that means that there might be new keyframes
     // not included in the Global BA and they are not consistent with the updated map.
     // We need to propagate the correction through the spanning tree
+    //更新所有地图点和关键帧
+    //利用全局BA结果，基于生成树产生新关键帧的矫正
     {
         unique_lock<mutex> lock(mMutexGBA);
         if(idx!=mnFullBAIdx)
@@ -787,12 +790,12 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
             unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
 
             // Correct keyframes starting at map first keyframe
-            list<KeyFrame*> lpKFtoCheck(mpMap->mvpKeyFrameOrigins.begin(),mpMap->mvpKeyFrameOrigins.end());
+            list<KeyFrame*> lpKFtoCheck(mpMap->mvpKeyFrameOrigins.begin(),mpMap->mvpKeyFrameOrigins.end());//所有原始关键帧
 
             while(!lpKFtoCheck.empty())
             {
                 KeyFrame* pKF = lpKFtoCheck.front();
-                const set<KeyFrame*> sChilds = pKF->GetChilds();
+                const set<KeyFrame*> sChilds = pKF->GetChilds();//取出所有的子关键帧
                 cv::Mat Twc = pKF->GetPoseInverse();
                 for(set<KeyFrame*>::const_iterator sit=sChilds.begin();sit!=sChilds.end();sit++)
                 {
@@ -800,20 +803,20 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                     if(pChild->mnBAGlobalForKF!=nLoopKF)
                     {
                         cv::Mat Tchildc = pChild->GetPose()*Twc;
-                        pChild->mTcwGBA = Tchildc*pKF->mTcwGBA;//*Tcorc*pKF->mTcwGBA;
+                        pChild->mTcwGBA = Tchildc*pKF->mTcwGBA;//*Tcorc*pKF->mTcwGBA;//利用全局BA结果更新所有子关键帧的全局BA位姿
                         pChild->mnBAGlobalForKF=nLoopKF;
 
                     }
                     lpKFtoCheck.push_back(pChild);
                 }
 
-                pKF->mTcwBefGBA = pKF->GetPose();
-                pKF->SetPose(pKF->mTcwGBA);
+                pKF->mTcwBefGBA = pKF->GetPose();//全局BA前的位姿
+                pKF->SetPose(pKF->mTcwGBA);//将当前帧设为全局BA位姿
                 lpKFtoCheck.pop_front();
             }
 
             // Correct MapPoints
-            const vector<MapPoint*> vpMPs = mpMap->GetAllMapPoints();
+            const vector<MapPoint*> vpMPs = mpMap->GetAllMapPoints();//取出所有地图点
 
             for(size_t i=0; i<vpMPs.size(); i++)
             {
@@ -825,14 +828,14 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                 if(pMP->mnBAGlobalForKF==nLoopKF)
                 {
                     // If optimized by Global BA, just update
-                    pMP->SetWorldPos(pMP->mPosGBA);
+                    pMP->SetWorldPos(pMP->mPosGBA);//如果该地图点刚经过当前全局BA的校正，则直接利用全局BA结果更新此地图点的位姿
                 }
                 else
                 {
                     // Update according to the correction of its reference keyframe
                     KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
 
-                    if(pRefKF->mnBAGlobalForKF!=nLoopKF)
+                    if(pRefKF->mnBAGlobalForKF!=nLoopKF)//如果参考关键帧没经过最新的全局BA调整，则不用更新该地图点
                         continue;
 
                     // Map to non-corrected camera
@@ -845,7 +848,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                     cv::Mat Rwc = Twc.rowRange(0,3).colRange(0,3);
                     cv::Mat twc = Twc.rowRange(0,3).col(3);
 
-                    pMP->SetWorldPos(Rwc*Xc+twc);
+                    pMP->SetWorldPos(Rwc*Xc+twc);//利用参考关键帧的全局BA结果校正当前地图点。
                 }
             }            
 
