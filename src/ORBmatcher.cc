@@ -139,14 +139,21 @@ float ORBmatcher::RadiusByViewingCos(const float &viewCos)
         return 4.0;
 }
 
+/*
+ * 使用对极约束，得到p_1_t f_12 p_2 =0 ，那么 p_1_t f_12 将构成kp1在pKF2上的极线，
+ * 然后计算kp2到该极线的距离，就对二者是否能够匹配上进行初步筛选
 
+ */
 bool ORBmatcher::CheckDistEpipolarLine(const cv::KeyPoint &kp1,const cv::KeyPoint &kp2,const cv::Mat &F12,const KeyFrame* pKF2)
 {
     // Epipolar line in second image l = x1'F12 = [a b c]
+	// 求出kp1在pKF2上对应的极线
     const float a = kp1.pt.x*F12.at<float>(0,0)+kp1.pt.y*F12.at<float>(1,0)+F12.at<float>(2,0);
     const float b = kp1.pt.x*F12.at<float>(0,1)+kp1.pt.y*F12.at<float>(1,1)+F12.at<float>(2,1);
     const float c = kp1.pt.x*F12.at<float>(0,2)+kp1.pt.y*F12.at<float>(1,2)+F12.at<float>(2,2);
-
+    // 计算kp2特征点到极线的距离：
+        // 极线l：ax + by + c = 0
+        // (u,v)到l的距离为： |au+bv+c| / sqrt(a^2+b^2)
     const float num = a*kp2.pt.x+b*kp2.pt.y+c;
 
     const float den = a*a+b*b;
@@ -688,6 +695,10 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     return nmatches;
 }
 // 匹配pKF1与pKF2之间的未被匹配的特征点并通过bow加速，并校验是否符合对级约束。vMatchedPairs匹配成功的特征点在各自关键帧中的id。
+/*
+ * 因为在local mapping线程中，关键帧的位姿已经相当准确了，即F12也是比较准确的，所以可以使用三角化生成新的MapPoint，
+ * 匹配使用的是BoW，筛选部分使用了对极点邻域剔除、极线约束、角度投票（旋转一致性）进行剔除误匹配.
+ */
 int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F12,
                                        vector<pair<size_t, size_t> > &vMatchedPairs, const bool bOnlyStereo)
 {    
@@ -698,9 +709,9 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
     cv::Mat Cw = pKF1->GetCameraCenter();
     cv::Mat R2w = pKF2->GetRotation();
     cv::Mat t2w = pKF2->GetTranslation();
-    cv::Mat C2 = R2w*Cw+t2w;
+    cv::Mat C2 = R2w*Cw+t2w;//关键帧1的光心相对于关键帧2的位置
     const float invz = 1.0f/C2.at<float>(2);
-    const float ex =pKF2->fx*C2.at<float>(0)*invz+pKF2->cx;
+    const float ex =pKF2->fx*C2.at<float>(0)*invz+pKF2->cx;//这是极点啊，极点e2，即相机1的光心在相机2中的像素位置
     const float ey =pKF2->fy*C2.at<float>(1)*invz+pKF2->cy;
 
     // Find matches between not tracked keypoints
@@ -717,26 +728,28 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
 
     const float factor = 1.0f/HISTO_LENGTH;
 
-    DBoW2::FeatureVector::const_iterator f1it = vFeatVec1.begin();
-    DBoW2::FeatureVector::const_iterator f2it = vFeatVec2.begin();
+    DBoW2::FeatureVector::const_iterator f1it = vFeatVec1.begin();//关键帧1中的每个特征点的特征向量
+    DBoW2::FeatureVector::const_iterator f2it = vFeatVec2.begin();//关键帧2中的每个特征点的特征向量
     DBoW2::FeatureVector::const_iterator f1end = vFeatVec1.end();
     DBoW2::FeatureVector::const_iterator f2end = vFeatVec2.end();
 
     while(f1it!=f1end && f2it!=f2end)
     {
-        if(f1it->first == f2it->first)
+        if(f1it->first == f2it->first)//步骤1：分别取出属于同一node的ORB特征点(只有属于同一node，才有可能是匹配点)
         {
+        	// 步骤2：遍历KF中属于该node的特征点
             for(size_t i1=0, iend1=f1it->second.size(); i1<iend1; i1++)
             {
                 const size_t idx1 = f1it->second[i1];
                 
-                MapPoint* pMP1 = pKF1->GetMapPoint(idx1);
+                MapPoint* pMP1 = pKF1->GetMapPoint(idx1);//取出特征点对应的地图点
                 
                 // If there is already a MapPoint skip
+                //如果地图点已算出，则忽略
                 if(pMP1)
                     continue;
 
-                const bool bStereo1 = pKF1->mvuRight[idx1]>=0;
+                const bool bStereo1 = pKF1->mvuRight[idx1]>=0;//关键点1的右侧图片像素是否大于0，对于双目来讲bStereo1 = false
 
                 if(bOnlyStereo)
                     if(!bStereo1)
@@ -744,11 +757,11 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
                 
                 const cv::KeyPoint &kp1 = pKF1->mvKeysUn[idx1];
                 
-                const cv::Mat &d1 = pKF1->mDescriptors.row(idx1);
+                const cv::Mat &d1 = pKF1->mDescriptors.row(idx1);//特征点1的描述子
                 
                 int bestDist = TH_LOW;
                 int bestIdx2 = -1;
-                
+                //在pk2中相同的节点中寻找匹配的特征点
                 for(size_t i2=0, iend2=f2it->second.size(); i2<iend2; i2++)
                 {
                     size_t idx2 = f2it->second[i2];
@@ -756,10 +769,11 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
                     MapPoint* pMP2 = pKF2->GetMapPoint(idx2);
                     
                     // If we have already matched or there is a MapPoint skip
+                    //已经匹配上了，或者已经有了mappoint
                     if(vbMatched2[idx2] || pMP2)
                         continue;
 
-                    const bool bStereo2 = pKF2->mvuRight[idx2]>=0;
+                    const bool bStereo2 = pKF2->mvuRight[idx2]>=0;//关键点2的右侧图片像素是否大于0，对于双目来讲bStereo2 = false
 
                     if(bOnlyStereo)
                         if(!bStereo2)
@@ -773,15 +787,16 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
                         continue;
 
                     const cv::KeyPoint &kp2 = pKF2->mvKeysUn[idx2];
-
+//对于双目来说，该特征点距离极点太近，表明kp2对应的MapPoint距离pKF1相机太近，所以也要剔除
                     if(!bStereo1 && !bStereo2)
                     {
                         const float distex = ex-kp2.pt.x;
                         const float distey = ey-kp2.pt.y;
+                        ////如果相机2中的特征点距离极点e2太近，则表明特征点对应的地图点距离相机1的光心位置太近，这样的点不太好，要剔除，TODO为什么不好呢
                         if(distex*distex+distey*distey<100*pKF2->mvScaleFactors[kp2.octave])
                             continue;
                     }
-
+//检验两个特征点是否符合对极约束
                     if(CheckDistEpipolarLine(kp1,kp2,F12,pKF2))
                     {
                         bestIdx2 = idx2;
@@ -814,11 +829,11 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
         }
         else if(f1it->first < f2it->first)
         {
-            f1it = vFeatVec1.lower_bound(f2it->first);
+            f1it = vFeatVec1.lower_bound(f2it->first);//返回f2it->first节点或其下一个节点
         }
         else
         {
-            f2it = vFeatVec2.lower_bound(f1it->first);
+            f2it = vFeatVec2.lower_bound(f1it->first);//返回f1it->first节点或其下一个节点
         }
     }
 

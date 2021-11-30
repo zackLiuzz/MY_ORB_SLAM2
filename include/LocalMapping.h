@@ -36,6 +36,9 @@ namespace ORB_SLAM2
 class Tracking;
 class LoopClosing;
 class Map;
+/*
+ * LocalMapping是管理局部地图的类，管理的内容包括关键帧和地图点，所谓管理就是增加、删除和修正位姿
+ */
 
 class LocalMapping
 {

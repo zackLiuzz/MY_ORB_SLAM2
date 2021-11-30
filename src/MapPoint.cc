@@ -154,17 +154,17 @@ void MapPoint::SetBadFlag()
     {
         unique_lock<mutex> lock1(mMutexFeatures);
         unique_lock<mutex> lock2(mMutexPos);
-        mbBad=true;
+        mbBad=true;//设置该地图点为坏点
         obs = mObservations;
         mObservations.clear();
     }
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
-        pKF->EraseMapPointMatch(mit->second);
+        pKF->EraseMapPointMatch(mit->second);//在所有的可观关键帧中删除该地图点
     }
 
-    mpMap->EraseMapPoint(this);
+    mpMap->EraseMapPoint(this);//在局部地图中删除该地图点
 }
 
 MapPoint* MapPoint::GetReplaced()

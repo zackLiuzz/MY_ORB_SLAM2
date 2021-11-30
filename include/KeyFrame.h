@@ -39,7 +39,10 @@ class Map;
 class MapPoint;
 class Frame;
 class KeyFrameDatabase;
-
+/*
+ * 要注意共视关键帧和相连关键帧这两个概念的区别：只要能共同观测到至少一个地图点，就可以判断两个关键帧为相连关键帧，
+ * 但是共视关键帧要求两个关键帧的共视地图点数目超过一定阈值。
+ */
 class KeyFrame
 {
 public:
